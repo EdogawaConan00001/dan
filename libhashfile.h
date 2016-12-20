@@ -71,12 +71,12 @@ struct abstract_file_header {
     int namespace_depth;
     int file_size;
     char attr_flags[10];
-    int file_id;
+    uint64_t file_id;
     int hardlinks;
     char reparse_flags[10];
-    int ctime; //creation time
-    int atime; //access time
-    int mtime; //modification time
+    uint64_t ctime; //creation time
+    uint64_t atime; //access time
+    uint64_t mtime; //modification time
     int chunks; //number of chunks
 };
 
@@ -93,7 +93,7 @@ struct hashfile_handle {
     uint64_t num_files_processed;
     uint64_t num_hashes_processed_current_files;
 };
-int MIN(int a, int b);
+
 struct hashfile_handle *hashfile_open(char *hashfile_name);
 uint64_t hashfile_start_time(struct hashfile_handle *handle);
 uint64_t hashfile_end_time(struct hashfile_handle *handle);
@@ -102,9 +102,12 @@ int get_key_value(struct hashfile_handle *handle, char *key, int key_size,
         int *value);
 int get_char_value(struct hashfile_handle *handle, char *value);
 int get_int_value(struct hashfile_handle *handle, int *value);
+int get_uint64_value(struct hashfile_handle *handle, uint64_t *value);
 int Cur_part_end(struct hashfile_handle *handle);
 int hashfile_next_file(struct hashfile_handle *handle);
+const struct chunk_info *hashfile_next_chunk(struct hashfile_handle *handle);
 //int end_of_hashfile(struct hashfile_handle *handle, char* buffer);
 uint64_t hashfile_curfile_size(struct hashfile_handle *handle);
-int chunk_hash_size(struct chunk_info);
+int chunk_hash_size(struct chunk_info *ci);
+void hashfile_close(struct hashfile_handle *handle);
 #endif /*_HASHFILELIB_H_*/

@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <time.h>
 #include <string.h>
+#include <inttypes.h>
 #include <assert.h>
 #include <openssl/md5.h>
 
@@ -22,7 +23,7 @@ static void print_chunk_hash(uint64_t chunk_count, const uint8_t *hash,
 {
     int j;
 
-    printf("Chunk %06"PRIu64 ": ", chunk_count);
+    printf("Chunk %06"PRIu64": ", chunk_count);
 
     printf("%.2hhx", hash[0]);
     for (j=1; j < hash_size_in_bytes; j++)
@@ -70,6 +71,8 @@ static int read_hashfile(char **hashfile_name, int csize, char *cmeth, int count
     int hashfile_count = 0;
     for (; hashfile_count < count; hashfile_count++){
         handle = hashfile_open(hashfile_name[hashfile_count]);
+	//ret = lseek(handle->fd, 0, SEEK_CUR);        
+	//printf("ret metadata %d\n", ret);
         if (!handle){
             fprintf(stderr, "Error opening hash file: %d!", errno);
             return -1;
@@ -81,12 +84,13 @@ static int read_hashfile(char **hashfile_name, int csize, char *cmeth, int count
         else if(cmeth[0] == 'v') { 
             handle->metadata.chnk_method = VARIABLE;
         }
-        
+        file_count = 0;
         /* Go over the files in the hashfile*/
         while(1){
             ret = hashfile_next_file(handle);
+	    //printf("file 1 end %d\n", ret);
             if (ret < 0) {
-                printf(stderr, "Cannot get next file from a hashfile: %d.\n",errno);
+                fprintf(stderr, "Cannot get next file from a hashfile: %d.\n",errno);
                 return -1;
             }
         
@@ -95,21 +99,24 @@ static int read_hashfile(char **hashfile_name, int csize, char *cmeth, int count
                 break;
 
             /* file start*/
+            //printf("file id:%d\ndir_name:%s dir_length:%d\nfile_name %s file_length %d\n", file_count, handle->current_file.dir_name, handle->current_file.dir_length, handle->current_file.file_name, handle->current_file.file_length);
             memset(&file, 0 ,sizeof(file));
             memset(&file.minhash, 0xff, sizeof(file.minhash));//don't know what it is, and where is maxhash?
             file.fid = file_count;
 
             file.fname = malloc(strlen(handle->current_file.file_name)+1);
-            strcpy(file.name, handle->current_file.file_name);
-            printf("%d:%s, %d\n", file.fid, handle->current_file.file_name, hashfile_curfile_size(handle));
+            strcpy(file.fname, handle->current_file.file_name);
+            //printf("file_name: %s\n", handle->current_file.file_name);
+            printf("%d:%s, %"PRIu64"\n", file.fid, handle->current_file.file_name, hashfile_curfile_size(handle));
 
             MD5_CTX ctx;
             MD5_Init(&ctx);
-            
+            int all_chunk_size = 0;
             while(1){
                 ci = hashfile_next_chunk(handle);
                 if(!ci)/* exit the loop if it was the last chunk */
                     break;
+                //printf("chunk %s: %d\n", ci->hash, ci->size);
                 int hashsize = chunk_hash_size(ci);
                 int chunksize = ci->size;
                 memcpy(chunk.hash, ci->hash, hashsize);
@@ -117,7 +124,7 @@ static int read_hashfile(char **hashfile_name, int csize, char *cmeth, int count
                 /* new hash = hash(chunk_hash, chunk_size)*/
                 chunk.hashlen = hashsize + sizeof(chunksize);
 
-                MD5_Updata(&ctx, chunk.hash, chunk.hashlen);
+                MD5_Update(&ctx, chunk.hash, chunk.hashlen);
 		
 		/* also don't know why */
             	if(memcmp(chunk.hash, file.minhash, chunk.hashlen) < 0){
@@ -133,7 +140,7 @@ static int read_hashfile(char **hashfile_name, int csize, char *cmeth, int count
                     chunk.csize = ci->size;
                     chunk.cratio = 0;//UBC Trace don't have compression ratio
                     
-                    /* TO-DO: write to the open region*/
+                    /* TO-DO: write to the open region */
                     while(add_chunk_to_region(&chunk, &region) != 1){
                         /* the last region is full, write it to the open container*/
 
@@ -160,7 +167,7 @@ static int read_hashfile(char **hashfile_name, int csize, char *cmeth, int count
                     dupsize += chunk.csize;
 
                     if(chunk.csize != ci->size){
-                        print_chunk_hash(chunk_count, chunk_hash, chunk_hash_size(ci));//modify later
+                        print_chunk_hash(chunk_count, chunk.hash, chunk_hash_size(ci));//modify later
                         printf("Hash Collision: %d to %d\n", chunk.csize, ci->size);
                     }
                 }else {
@@ -190,6 +197,7 @@ static int read_hashfile(char **hashfile_name, int csize, char *cmeth, int count
             }else{
                 empty_files++;
             }
+	    
             free(file.fname);
             file.fname = NULL;
         }
