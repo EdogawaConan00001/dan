@@ -25,7 +25,12 @@ int split_line(struct hashfile_handle *handle, char *buffer){
     int len = strlen(buffer);
     for(i = 0; i < len; i++){
         if(buffer[i] == '\r' && buffer[i+1] == '\n'){
+            //printf("length %d\n", len);
+            ret = lseek(handle->fd, 0, SEEK_CUR);
+            //printf("ret11 %d\n", ret);
+            //printf("offset %d\n", ret-len+i+2);
             ret = lseek(handle->fd, (off_t)-len+i+2, SEEK_CUR);
+            //printf("ret22 %d\n", ret);
             break;
         }
     }
@@ -51,13 +56,20 @@ int get_char_value(struct hashfile_handle *handle, char *value){
 int get_int_value(struct hashfile_handle *handle, int *value){
     int ret;
     char buffer[MAX_B] = "";
+    //printf("11 length of buffer %d, size of buffer %d\n", strlen(buffer), (int)sizeof(buffer));
     ret = read(handle->fd, buffer, sizeof(buffer));
+    //printf("buffer?? %s\n", buffer);
     /*if(strlen(buffer) < sizeof(buffer)){
         printf("read bytes:%d\nbuffer: %s\n", (int)strlen(buffer), buffer); 
         printf("Will end of file\n");
     }*/
+    //printf("11 length of buffer %d, size of buffer %d\n", strlen(buffer), (int)sizeof(buffer));
+    if(strlen(buffer) > (int)sizeof(buffer))
+        buffer[MAX_B] = '\0';
     *value = (int)strtol(buffer, NULL, 10);
+    //assert(strlen(buffer) <= (int)sizeof(buffer));
     ret = split_line(handle, buffer);
+    //printf("ret33 %d\n", ret);
     return ret;
 }
 int get_uint64_value(struct hashfile_handle *handle, uint64_t *value){
@@ -90,7 +102,7 @@ int Cur_part_end(struct hashfile_handle *handle){
     while(!end){
         char buffer[MAX_B] = "";
         ret = read(handle->fd, buffer, sizeof(buffer));
-        //printf("buffer_part %s\n", buffer);
+        //printf("ret %d\nbuffer_part %s\n", ret, buffer);
         int len = strlen(buffer);
         if(ret == 0){
             //printf("end of file\n");
@@ -228,7 +240,7 @@ int hashfile_next_file(struct hashfile_handle *handle){
     //printf("buffer ret %d\n", ret);
     //printf("buffer %s\n",buffer);
     if(strcmp(buffer, "LOGCOMPLETE") == 0){
-        printf("END OF FILE\n");
+        //printf("END OF FILE\n");
         return 0;
     }else{
         ret = lseek(handle->fd, (off_t)-11, SEEK_CUR);
@@ -237,8 +249,8 @@ int hashfile_next_file(struct hashfile_handle *handle){
     ret = get_key_value(handle, handle->current_file.dir_name, 
             sizeof(handle->current_file.dir_name), &handle->current_file.dir_length);
     //printf("%d: dir_name %s dir_length %d\n", ret, handle->current_file.dir_name, handle->current_file.dir_length);
-    assert(strcmp(handle->current_file.dir_name, "zzzzzzzzzz") < 0);
-    assert(strcmp(handle->current_file.dir_name, "0000000000") >= 0);
+    //assert(strcmp(handle->current_file.dir_name, "zzzzzzzzzz") < 0);
+    //assert(strcmp(handle->current_file.dir_name, "0000000000") >= 0);
     ret = get_key_value(handle, handle->current_file.file_name, 
             sizeof(handle->current_file.file_name), &handle->current_file.file_length);
     //printf("file name %s\n", handle->current_file.file_name);
@@ -246,8 +258,9 @@ int hashfile_next_file(struct hashfile_handle *handle){
     //printf("%d: extensions %s ext_value: %d\n", ret, handle->current_file.extensions, handle->current_file.ext_value);
     ret = get_int_value(handle, &handle->current_file.namespace_depth);
     //printf("%d: namespace: %d\n", ret, handle->current_file.namespace_depth);
-    ret = get_int_value(handle, &handle->current_file.file_size);
-    //printf("%d: file_size: %d\n", ret, handle->current_file.file_size);
+    ret = get_uint64_value(handle, &handle->current_file.file_size);
+    //printf("%d: file_size: %"PRIu64"\n", ret, handle->current_file.file_size);
+    assert(handle->current_file.file_size>=0);
     ret = get_char_value(handle, handle->current_file.attr_flags);
     //printf("%d: attr_flags: %s\n", ret, handle->current_file.attr_flags);
     ret = get_uint64_value(handle, &handle->current_file.file_id);
@@ -281,22 +294,30 @@ const struct chunk_info *hashfile_next_chunk(struct hashfile_handle *handle){
     int ret = 0;
     char buffer[MAX_B] = "";
     if(!hashfile_curfile_size(handle)){/* file_size == 0*/
-	printf("empty file!\n"); 
+	//printf("empty file!\n"); 
         ret = read(handle->fd, buffer, sizeof(buffer));
         if(buffer[0] == '\r' && buffer[1] =='\n'){// No Lcn, Vcn
             ret = lseek(handle->fd, (off_t)-strlen(buffer)+2, SEEK_CUR);
         }else{
+            //printf("buffer**** %s\n", buffer);
             ret = lseek(handle->fd, (off_t)-strlen(buffer), SEEK_CUR);       
 	    ret = Cur_part_end(handle);
+            //printf("ret %d\n",ret);
         }
         return NULL;
     }
     
     
     while(1){
+        memset(buffer, 0, sizeof(buffer));
         ret = read(handle->fd, buffer, sizeof(buffer));
+        //printf("***buffer %s\n", buffer);
         if(buffer[0] == 'S' || buffer[0] == 'V' || buffer[0] == 'A'){
-            ret = split_line(handle, buffer);
+            //printf("buffer %s\n", buffer);
+            //ret = lseek(handle->fd, 0, SEEK_CUR);
+            //printf("ret1: %d\n", ret);
+	    ret = split_line(handle, buffer);
+	    //printf("ret2: %d\n", ret);
             continue;
         }else if(buffer[0] == '\r' && buffer[1] == '\n'){// handle exception: file_size is not 0, but no chunk
 	    ret = split_line(handle, buffer);
@@ -312,9 +333,16 @@ const struct chunk_info *hashfile_next_chunk(struct hashfile_handle *handle){
             //printf("hash size %d\n", hash_size);
             ret = get_key_value(handle, handle->current_chunk_info.hash, hash_size, 
                     &handle->current_chunk_info.size);
+            //printf("chunk_info %s: %d\n", handle->current_chunk_info.hash, handle->current_chunk_info.size);
             if(hash_size == 10){
-		handle->current_chunk_info.hash[8] = '\0';
+		handle->current_chunk_info.hash[10] = '\0';
 	    }
+            if(hash_size == 12){
+	        handle->current_chunk_info.hash[12] = '\0';
+	    }
+            //assert(strcmp(handle->current_chunk_info.hash, "00000000")>=0);
+            //assert(strcmp(handle->current_chunk_info.hash, "zzzzzzzzzzzz")<=0);
+            assert(handle->current_chunk_info.size != 0);
             break;
         }
     }
@@ -354,6 +382,7 @@ int read_hashfile(char **hashfile_name, int count){
             }
             //printf("file no. %d\n", file_count);
             //int chunksize = 0;
+	    //printf("dir_name:%s dir_length:%d\nfile_name %s file_size %"PRIu64"\n", handle->current_file.dir_name, handle->current_file.dir_length, handle->current_file.file_name, handle->current_file.file_size);
             int filesize = 0;
 	    while(1){
 	        const struct chunk_info *ci;
@@ -363,8 +392,9 @@ int read_hashfile(char **hashfile_name, int count){
                     break;
 		}
 		filesize += ci->size;
-		//printf("=====%s: %d\n",handle->current_chunk_info.hash, handle->current_chunk_info.size);
-                printf("*****%s: %d\n", ci->hash, ci->size);
+		printf("chunk %s: %d\n",handle->current_chunk_info.hash, handle->current_chunk_info.size);
+               
+                //printf("*****%s: %d\n", ci->hash, ci->size);
                 //sleep(1);		
 	   }
 	    if(filesize != hashfile_curfile_size(handle))

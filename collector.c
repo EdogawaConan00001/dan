@@ -30,30 +30,28 @@ static void print_chunk_hash(uint64_t chunk_count, const uint8_t *hash,
         printf(":%.2hhx", hash[j]);
     printf("\n");
 }
-
-static char* parse_file_name(char *path)
-{
-    int i = strlen(path) - 1;
-    while(i>=0 && path[i]!='\\' && path[i]!='/')
-        i--;
-    return &path[i+1];
+static char* parse_file_dir(char *path){
+    int i = strlen(path) -1;
+    if(path[i] != '/'){
+        path[i+1] = '/';
+    }
+    return path;
 }
-
-static int read_hashfile(char **hashfile_name, int csize, char *cmeth, int count)
+static char* hashfile_name(char *dir, int len,  int hashfile_count){
+    char* file_name = dir;
+    //printf("dir %s\n", dir);
+    sprintf(file_name+len, "%04d", hashfile_count);
+    return file_name;
+}
+static int read_hashfile(char *hashfile_dir, int csize, char *cmeth, int count)
 {
-    char buf[MAXLINE];
     struct hashfile_handle *handle;
-    const struct chunk_info *ci;
     int ret;
-
+    int dir_len = strlen(hashfile_dir);
     struct chunk_rec chunk;
     int list[2];
-    memset(&chunk, 0, sizeof(chunk));
-    chunk.list = list;
     struct container_rec container;
-    memset(&container, 0, sizeof(container));
     struct region_rec region;
-    memset(&region, 0, sizeof(region));
     struct file_rec file;
     int64_t syssize = 0;
     int64_t dupsize = 0;
@@ -65,12 +63,17 @@ static int read_hashfile(char **hashfile_name, int csize, char *cmeth, int count
     int region_count = 0;
     int file_count = 0;
     int empty_files = 0;
-
     int dup_count = 0;
-
-    int hashfile_count = 0;
-    for (; hashfile_count < count; hashfile_count++){
-        handle = hashfile_open(hashfile_name[hashfile_count]);
+    int hashfile_count = 1;
+    
+    for (; hashfile_count <= count; hashfile_count++){
+        memset(&chunk, 0, sizeof(chunk));
+        chunk.list = list;
+        memset(&container, 0, sizeof(container));
+        memset(&region, 0, sizeof(region));
+        char *Hashfile_Name = hashfile_name(hashfile_dir, dir_len, hashfile_count);
+        printf("%s\n", Hashfile_Name);
+        handle = hashfile_open(Hashfile_Name);
 	//ret = lseek(handle->fd, 0, SEEK_CUR);        
 	//printf("ret metadata %d\n", ret);
         if (!handle){
@@ -84,7 +87,7 @@ static int read_hashfile(char **hashfile_name, int csize, char *cmeth, int count
         else if(cmeth[0] == 'v') { 
             handle->metadata.chnk_method = VARIABLE;
         }
-        file_count = 0;
+        
         /* Go over the files in the hashfile*/
         while(1){
             ret = hashfile_next_file(handle);
@@ -93,13 +96,12 @@ static int read_hashfile(char **hashfile_name, int csize, char *cmeth, int count
                 fprintf(stderr, "Cannot get next file from a hashfile: %d.\n",errno);
                 return -1;
             }
-        
             /* exit the loop if it is the last file*/
             if (ret == 0)
                 break;
 
             /* file start*/
-            //printf("file id:%d\ndir_name:%s dir_length:%d\nfile_name %s file_length %d\n", file_count, handle->current_file.dir_name, handle->current_file.dir_length, handle->current_file.file_name, handle->current_file.file_length);
+            //printf("dir_name:%s dir_length:%d\nfile_name %s file_size %d\n", handle->current_file.dir_name, handle->current_file.dir_length, handle->current_file.file_name, handle->current_file.file_size);
             memset(&file, 0 ,sizeof(file));
             memset(&file.minhash, 0xff, sizeof(file.minhash));//don't know what it is, and where is maxhash?
             file.fid = file_count;
@@ -113,10 +115,11 @@ static int read_hashfile(char **hashfile_name, int csize, char *cmeth, int count
             MD5_Init(&ctx);
             int all_chunk_size = 0;
             while(1){
+                const struct chunk_info *ci;
                 ci = hashfile_next_chunk(handle);
                 if(!ci)/* exit the loop if it was the last chunk */
                     break;
-                //printf("chunk %s: %d\n", ci->hash, ci->size);
+                printf("chunk %s: %d\n", ci->hash, ci->size);
                 int hashsize = chunk_hash_size(ci);
                 int chunksize = ci->size;
                 memcpy(chunk.hash, ci->hash, hashsize);
@@ -127,6 +130,7 @@ static int read_hashfile(char **hashfile_name, int csize, char *cmeth, int count
                 MD5_Update(&ctx, chunk.hash, chunk.hashlen);
 		
 		/* also don't know why */
+
             	if(memcmp(chunk.hash, file.minhash, chunk.hashlen) < 0){
                     memcpy(file.minhash, chunk.hash, chunk.hashlen);
             	}
@@ -213,12 +217,20 @@ int main(int argc, char *argv[])
 {
     create_database();
     /*
-     * ./collector [tracefile] [chunking_size: 8, 16,..] [chunking_method: f/v]
+     * ./collector [chunking_size: 8, 16,..] [chunking_method: f/v]  [dir] [count] 
      * */
-    int chnking_size = (int)strtol(argv[2], NULL, 10);
-    int ret = read_hashfile(&argv[1], chnking_size, argv[3], argc - 3);
+    int chnking_size = (int)strtol(argv[1], NULL, 10);
+    char *dir = parse_file_dir(argv[3]);
+    int len = strlen(dir);
+    int num_files = (int)strtol(argv[4], NULL, 10);
+    /*int i = 1;
+    for( ; i <= num_files; i++){
+        char *res = hashfile_name(dir, len, i);
+        printf("%s\n", res);
+    }*/
+    int ret = read_hashfile(dir, chnking_size, argv[2], num_files);
     
     close_database();
     
-    return ret;
+    return 0;
 }

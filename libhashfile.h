@@ -69,7 +69,7 @@ struct abstract_file_header {
     char extensions[10];
     int ext_value;
     int namespace_depth;
-    int file_size;
+    uint64_t file_size;
     char attr_flags[10];
     uint64_t file_id;
     int hardlinks;
@@ -83,6 +83,7 @@ struct abstract_file_header {
 struct chunk_info {
     char *hash; //10-bit hash of data, and 12-bit 'z'?
     int size;
+    uint8_t cratio;
 }__attribute__((packed));
 
 struct hashfile_handle {
