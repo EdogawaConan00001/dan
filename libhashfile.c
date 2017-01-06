@@ -18,6 +18,32 @@
 #include "libhashfile.h"
 #define MAX_B 255
 
+char* get_OS(struct hashfile_handle *handle){
+    return handle->metadata.OS;
+}
+char* get_hostname(struct hashfile_handle *handle){
+    return handle->metadata.hostname;
+}
+char* get_time(struct hashfile_handle *handle){
+    time_t tm = (time_t)handle->metadata.cur_time;
+    char* buf = ctime(&tm);
+    return buf;
+}
+char* parse_file_dir(char *path){
+    int i = strlen(path) -1;
+    if(path[i] != '/'){
+        path[i+1] = '/';
+    }
+    return path;
+}
+
+char* hashfile_name(char *dir, int len,  int hashfile_count){
+    char* file_name = dir;
+    //printf("dir %s\n", dir);
+    sprintf(file_name+len, "%04d", hashfile_count);
+    return file_name;
+}
+
 int split_line(struct hashfile_handle *handle, char *buffer){
     /*go to the beginning of the nextline*/
     int ret = 0;
@@ -203,8 +229,8 @@ struct hashfile_handle *hashfile_open(char *hashfile_name)
     //printf("****ret %d\n", ret);
     ret = get_char_value(handle, handle->metadata.hostname);
     ret = get_char_value(handle, handle->metadata.sys_dir);
-    ret = get_int_value(handle, &handle->metadata.cur_time);
-    
+    ret = get_uint64_value(handle, &handle->metadata.cur_time);
+    ret = get_char_value(handle, handle->metadata.OS);
     handle->metadata.hsh_method = MD5_48BIT_HASH;
     handle->current_file.chunks = 0;
     handle->num_files_processed = 0;

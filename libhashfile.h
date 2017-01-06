@@ -50,13 +50,14 @@ struct hashfile_metadata {
     char username[14];
     char hostname[14];
     char sys_dir[21];
-    int cur_time;
+    uint64_t cur_time;
     enum chnking_method chnk_method;
     union {
         struct fixed_chnking_params fixed_params;
         struct var_chnking_params var_params;
     }chnk_method_params;
     enum hshing_method hsh_method;
+    char OS[255];
 }__attribute__((packed));
 /* refer to
  * UBC per file format
@@ -107,8 +108,15 @@ int get_uint64_value(struct hashfile_handle *handle, uint64_t *value);
 int Cur_part_end(struct hashfile_handle *handle);
 int hashfile_next_file(struct hashfile_handle *handle);
 const struct chunk_info *hashfile_next_chunk(struct hashfile_handle *handle);
-//int end_of_hashfile(struct hashfile_handle *handle, char* buffer);
 uint64_t hashfile_curfile_size(struct hashfile_handle *handle);
 int chunk_hash_size(struct chunk_info *ci);
 void hashfile_close(struct hashfile_handle *handle);
+char* get_time(struct hashfile_handle *handle);
+char* get_hostname(struct hashfile_handle *handle);
+char* get_OS(struct hashfile_handle *handle);
+/*
+* handle directory
+*/
+char* parse_file_dir(char *path);
+char* hashfile_name(char *dir, int len, int hashfile_count);
 #endif /*_HASHFILELIB_H_*/
