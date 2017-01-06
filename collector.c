@@ -30,20 +30,8 @@ static void print_chunk_hash(uint64_t chunk_count, const uint8_t *hash,
         printf(":%.2hhx", hash[j]);
     printf("\n");
 }
-static char* parse_file_dir(char *path){
-    int i = strlen(path) -1;
-    if(path[i] != '/'){
-        path[i+1] = '/';
-    }
-    return path;
-}
-static char* hashfile_name(char *dir, int len,  int hashfile_count){
-    char* file_name = dir;
-    //printf("dir %s\n", dir);
-    sprintf(file_name+len, "%04d", hashfile_count);
-    return file_name;
-}
-static int read_hashfile(char *hashfile_dir, int csize, char *cmeth, int count)
+
+static int read_hashfile(char *hashfile_dir, int csize, char *cmeth, int begin_file, int count)
 {
     struct hashfile_handle *handle;
     int ret;
@@ -64,9 +52,9 @@ static int read_hashfile(char *hashfile_dir, int csize, char *cmeth, int count)
     int file_count = 0;
     int empty_files = 0;
     int dup_count = 0;
-    int hashfile_count = 1;
+    int hashfile_count = begin_file;
     
-    for (; hashfile_count <= count; hashfile_count++){
+    for (; hashfile_count < count; hashfile_count++){
         memset(&chunk, 0, sizeof(chunk));
         chunk.list = list;
         memset(&container, 0, sizeof(container));
@@ -205,6 +193,10 @@ static int read_hashfile(char *hashfile_dir, int csize, char *cmeth, int count)
             free(file.fname);
             file.fname = NULL;
         }
+	char* hostname = get_hostname(handle);
+	char* OS = get_OS(handle);
+	char* tm = get_time(handle);
+	printf("Hostname: %s, OS is %s, Time is %s\n", hostname, OS, tm);
         hashfile_close(handle);
     }
     printf("%.2fGB bytes in total, eliminating %.2fGB bytes, %.5f, %.5f\n", 1.0*syssize/1024/1024/1024, 1.0*dupsize/1024/1024/1024, 1.0*dupsize/syssize, 1.0*syssize/(syssize-dupsize));
@@ -215,22 +207,26 @@ static int read_hashfile(char *hashfile_dir, int csize, char *cmeth, int count)
 
 int main(int argc, char *argv[])
 {
+    clock_t start, end;
+    start = clock();
     create_database();
     /*
-     * ./collector [chunking_size: 8, 16,..] [chunking_method: f/v]  [dir] [count] 
+     * ./collector [chunking_size: 8, 16,..] [chunking_method: f/v]  [dir] [begin_file] [count] 
      * */
     int chnking_size = (int)strtol(argv[1], NULL, 10);
     char *dir = parse_file_dir(argv[3]);
-    int len = strlen(dir);
-    int num_files = (int)strtol(argv[4], NULL, 10);
+    int begin_file = (int)strtol(argv[4], NULL, 10);
+    int num_files = (int)strtol(argv[5], NULL, 10);
+    int end_file = begin_file + num_files;
     /*int i = 1;
     for( ; i <= num_files; i++){
         char *res = hashfile_name(dir, len, i);
         printf("%s\n", res);
     }*/
-    int ret = read_hashfile(dir, chnking_size, argv[2], num_files);
+    int ret = read_hashfile(dir, chnking_size, argv[2], begin_file, end_file);
     
     close_database();
-    
+    end = clock();
+    printf("Run time: %lf\n", (double)(end - start)/CLOCKS_PER_SEC);
     return 0;
 }
