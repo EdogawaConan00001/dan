@@ -1,8 +1,6 @@
-The **rendered** markdown is on the *right*
+Dan has the following parts:
+  * collector.c
+    * libhashfile.h/c
+  * simd_exporter.c
 
-This is a [link](http://github.com)
-
-  * apples
-  * oranges
-
-:tada: :fireworks: :smile:
+There are also scripts to run *dan* easier. (Update later...)
