@@ -31,7 +31,7 @@ static void print_chunk_hash(uint64_t chunk_count, const uint8_t *hash,
     printf("\n");
 }
 
-static int read_hashfile(char *hashfile_dir, int csize, char *cmeth, int begin_file, int count)
+static int read_hashfile(char *hashfile_dir, int csize, char *cmeth, int *file_list, int count)
 {
     struct hashfile_handle *handle;
     int ret;
@@ -41,26 +41,31 @@ static int read_hashfile(char *hashfile_dir, int csize, char *cmeth, int begin_f
     struct container_rec container;
     struct region_rec region;
     struct file_rec file;
+    memset(&chunk, 0, sizeof(chunk));
+    chunk.list = list;
+    memset(&container, 0, sizeof(container));
+    memset(&region, 0, sizeof(region));
+
     int64_t syssize = 0;
     int64_t dupsize = 0;
-
-    /* statistics for generating IDs
-     * ID starts from 0 */
+     /* statistics for generating IDs
+      * ID starts from 0 */
     int chunk_count = 0;
-    int container_count = 0;
-    int region_count = 0;
     int file_count = 0;
     int empty_files = 0;
     int dup_count = 0;
-    int hashfile_count = begin_file;
-    
+    int container_count = 0;
+    int region_count = 0;
+    int hashfile_count = 0;
+
+    clock_t start, end;
+    start = clock();
+
     for (; hashfile_count < count; hashfile_count++){
-        memset(&chunk, 0, sizeof(chunk));
-        chunk.list = list;
-        memset(&container, 0, sizeof(container));
-        memset(&region, 0, sizeof(region));
-        char *Hashfile_Name = hashfile_name(hashfile_dir, dir_len, hashfile_count);
+
+        char *Hashfile_Name = hashfile_name(hashfile_dir, dir_len, file_list[hashfile_count]);
         printf("%s\n", Hashfile_Name);
+	//sleep(5);
         handle = hashfile_open(Hashfile_Name);
 	//ret = lseek(handle->fd, 0, SEEK_CUR);        
 	//printf("ret metadata %d\n", ret);
@@ -97,7 +102,7 @@ static int read_hashfile(char *hashfile_dir, int csize, char *cmeth, int begin_f
             file.fname = malloc(strlen(handle->current_file.file_name)+1);
             strcpy(file.fname, handle->current_file.file_name);
             //printf("file_name: %s\n", handle->current_file.file_name);
-            printf("%d:%s, %"PRIu64"\n", file.fid, handle->current_file.file_name, hashfile_curfile_size(handle));
+            fprintf(stderr, "%d:%s, %"PRIu64"\n", file.fid, handle->current_file.file_name, hashfile_curfile_size(handle));
 
             MD5_CTX ctx;
             MD5_Init(&ctx);
@@ -107,7 +112,7 @@ static int read_hashfile(char *hashfile_dir, int csize, char *cmeth, int begin_f
                 ci = hashfile_next_chunk(handle);
                 if(!ci)/* exit the loop if it was the last chunk */
                     break;
-                printf("chunk %s: %d\n", ci->hash, ci->size);
+                fprintf(stderr, "chunk %s: %d\n", ci->hash, ci->size);
                 int hashsize = chunk_hash_size(ci);
                 int chunksize = ci->size;
                 memcpy(chunk.hash, ci->hash, hashsize);
@@ -138,6 +143,7 @@ static int read_hashfile(char *hashfile_dir, int csize, char *cmeth, int begin_f
 
                         add_region_to_container(&region, &container);
                         region_count++;
+			
 
                         /* open a new region*/
                         reset_region_rec(&region);
@@ -145,7 +151,7 @@ static int read_hashfile(char *hashfile_dir, int csize, char *cmeth, int begin_f
 
                         if(container_full(&container)){
                             container_count++;
-
+			    
                             reset_container_rec(&container);
                             container.cid = container_count;
                         }
@@ -181,7 +187,7 @@ static int read_hashfile(char *hashfile_dir, int csize, char *cmeth, int begin_f
             MD5_Final(file.hash, &ctx);
 
             if(file.fsize != hashfile_curfile_size(handle))
-                printf("%"PRId64" != %"PRIu64"\n", file.fsize, hashfile_curfile_size(handle));
+                fprintf(stderr, "%"PRId64" != %"PRIu64"\n", file.fsize, hashfile_curfile_size(handle));
             /* file end; update it */
             if(file.fsize > 0){
                 update_file(&file);
@@ -196,37 +202,56 @@ static int read_hashfile(char *hashfile_dir, int csize, char *cmeth, int begin_f
 	char* hostname = get_hostname(handle);
 	char* OS = get_OS(handle);
 	char* tm = get_time(handle);
-	printf("Hostname: %s, OS is %s, Time is %s\n", hostname, OS, tm);
+	//printf("File No. %d\n", file_list[hashfile_count]);
+	//printf("Hostname: %s, OS is %s, Time is %s", hostname, OS, tm);
+	        
+	//printf("%d\t%s\t%s\t%s\t%.2f\t%d\t%d\t%.5f\t%lf\n", file_list[hashfile_count], hostname, OS, tm, 1.0*syssize/1024/1024/1024, file_count, chunk_count, 100.0*dupsize/syssize, (double)(end - start)/CLOCKS_PER_SEC);
         hashfile_close(handle);
+	//printf("%.2fGB bytes in total, eliminating %.2fGB bytes, %.5f, %.5f\n", 1.0*syssize/1024/1024/1024, 1.0*dupsize/1024/1024/1024, 1.0*dupsize/syssize, 1.0*syssize/(syssize-dupsize));
+   	//printf("%d duplicate chunks out of %d\n", dup_count, chunk_count);
+    	//printf("%d files, excluding %d empty files\n", file_count, empty_files);
+	
+	
     }
-    printf("%.2fGB bytes in total, eliminating %.2fGB bytes, %.5f, %.5f\n", 1.0*syssize/1024/1024/1024, 1.0*dupsize/1024/1024/1024, 1.0*dupsize/syssize, 1.0*syssize/(syssize-dupsize));
+    end = clock();
+    int i = 0;
+    for (; i < count; i++){
+    	if (i == 0)printf("Collected from file: %d", file_list[i]);
+	else printf(" %d", file_list[i]);
+    }
+    printf("\n");
+    printf("%.2fGB bytes in total, eliminating %.2fGB bytes, %.5f, %.5f\n", 1.0*syssize/1024/1024/1024, 
+		1.0*dupsize/1024/1024/1024, 1.0*dupsize/syssize, 1.0*syssize/(syssize-dupsize));
     printf("%d duplicate chunks out of %d\n", dup_count, chunk_count);
     printf("%d files, excluding %d empty files\n", file_count, empty_files);
+    printf("Run time: %lf\n", (double)(end - start)/CLOCKS_PER_SEC);
     return 0;
 }
 
 int main(int argc, char *argv[])
 {
-    clock_t start, end;
-    start = clock();
+    
     create_database();
     /*
-     * ./collector [chunking_size: 8, 16,..] [chunking_method: f/v]  [dir] [begin_file] [count] 
+     * ./collector [chunking_size: 8, 16,..] [chunking_method: f/v]  [count] [dir] [file1] [file2] ... 
      * */
     int chnking_size = (int)strtol(argv[1], NULL, 10);
-    char *dir = parse_file_dir(argv[3]);
-    int begin_file = (int)strtol(argv[4], NULL, 10);
-    int num_files = (int)strtol(argv[5], NULL, 10);
-    int end_file = begin_file + num_files;
-    /*int i = 1;
-    for( ; i <= num_files; i++){
-        char *res = hashfile_name(dir, len, i);
+    int num_files = (int)strtol(argv[3], NULL, 10);
+    char *dir = parse_file_dir(argv[4]);
+    int i = 0;
+    int *file_list = malloc(num_files*sizeof(int));
+    for ( ; i < num_files; i++){
+	file_list[i] = (int)strtol(argv[5+i], NULL, 10);
+    }
+    printf("num_files %d\n", num_files);
+    /*int len = strlen(dir);
+    for(i = 0; i < num_files; i++){
+        char *res = hashfile_name(dir, len, file_list[i]);
         printf("%s\n", res);
     }*/
-    int ret = read_hashfile(dir, chnking_size, argv[2], begin_file, end_file);
+    //printf("File No.\tHostname\tOS\tTime\tRaw Capacity\tFiles\tChunks\tDedup\tRuntime\t\n");
+    int ret = read_hashfile(dir, chnking_size, argv[2], file_list, num_files);
     
     close_database();
-    end = clock();
-    printf("Run time: %lf\n", (double)(end - start)/CLOCKS_PER_SEC);
     return 0;
 }

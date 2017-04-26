@@ -21,7 +21,7 @@ static void print_a_chunk(int chunksize, int64_t content){
 	int lines_no = (chunksize+1023)/1024;
 	//printf("chunksize %d, lines_no %d\n", chunksize, lines_no);
         assert(lines_no >= 1);
-	assert(lines_no <= 16);
+	//assert(lines_no <= 16);
 	int i = 0;
 	for(; i<lines_no; i++)
 		printf("%"PRId64"\n", content);
@@ -29,7 +29,7 @@ static void print_a_chunk(int chunksize, int64_t content){
 
 /* there is no trace for chunk-level with dedup */
 /* Fixed-sized file system block of 8 KB if weighted */
-void chunk_nodedup_simd_trace(char *path, int count,  int weighted){
+void chunk_nodedup_simd_trace(char *path, int *file_list, int count,  int weighted){
 	if (weighted) {
 		fprintf(stderr, "CHUNK:NO DEDUP:WEIGHTED\n");
 		printf("CHUNK:NO DEDUP:WEIGHTED\n");
@@ -71,7 +71,7 @@ void chunk_nodedup_simd_trace(char *path, int count,  int weighted){
  * Chunk level, without file semantics 
  * Dedup
  */
-void chunk_dedup_simd_trace(char *path, int count, int weighted, char *pophashfile)
+void chunk_dedup_simd_trace(char *path, int *file_list, int count, int weighted, char *pophashfile)
 {
 	if (weighted) {
 		fprintf(stderr, "CHUNK:DEDUP:WEIGHTED\n");
@@ -92,7 +92,10 @@ void chunk_dedup_simd_trace(char *path, int count, int weighted, char *pophashfi
 	/* USE part */
 	int64_t sum4mean = 0;
 	int64_t count4mean = 0;
-	while (iterate_chunk(&chunk, 0) == 0) {
+
+    int fd_pop = open("pophashfile", O_RDWR);
+
+    while (iterate_chunk(&chunk, 0) == 0) {
 
 		int64_t sum = chunk.csize;
 		sum *= chunk.rcount;
@@ -101,6 +104,15 @@ void chunk_dedup_simd_trace(char *path, int count, int weighted, char *pophashfi
 		psize += chunk.csize;
 
 		total_chunks += chunk.rcount;
+
+        if(chunk.rcount >= 1){
+            if(fd_pop < 0){
+                fprintf(stderr, "can't open pophashfile\n");
+                return 0;
+            }
+            int pop_ret = write(fd_pop, chunk.hash, 20);
+            fprintf(stderr, "%d\n", pop_ret);
+        }
 
 		if (weighted) {
 			sum4mean += sum * chunk.csize;
@@ -120,6 +132,7 @@ void chunk_dedup_simd_trace(char *path, int count, int weighted, char *pophashfi
 			1.0*sum4mean*psize/count4mean/lsize);
 
 	close_iterator();
+    close(fd_pop);
 
 	char buf[4096];
 	struct hashfile_handle *handle;
@@ -146,7 +159,7 @@ void chunk_dedup_simd_trace(char *path, int count, int weighted, char *pophashfi
 
 			/* restoring a pop chunk */
 			memcpy(chunk.hash, pophash, 20);
-			assert(search_chunk(&chunk));
+			//assert(search_chunk(&chunk));
 
 			int64_t sum = chunk.csize;
 			sum *= chunk.rcount;
@@ -172,10 +185,10 @@ void chunk_dedup_simd_trace(char *path, int count, int weighted, char *pophashfi
 		}
 		close(popfd);
 	}
-    int len = strlen(path);
-	int pc = 1;
-	for (; pc <= count; pc++) {
-        char* Hashfile_Name = hashfile_name(path, len, pc);
+    	int len = strlen(path);
+	int pc = 0;
+	for (; pc < count; pc++) {
+        char* Hashfile_Name = hashfile_name(path, len, file_list[pc]);
 		handle = hashfile_open(Hashfile_Name);
 
 		if (!handle) {
@@ -249,7 +262,7 @@ void chunk_dedup_simd_trace(char *path, int count, int weighted, char *pophashfi
  * File level, no dedup
  * weighted by size?
  */
-void file_nodedup_simd_trace(char *path, int count,  int weighted)
+void file_nodedup_simd_trace(char *path, int *file_list, int count,  int weighted)
 {
 	if (weighted) {
 		printf("FILE:NO DEDUP:WEIGHTED\n");
@@ -314,11 +327,12 @@ void file_nodedup_simd_trace(char *path, int count,  int weighted)
 	int step = 1;
 
    	int len = strlen(path);
-	int pc = 1;
-	for (; pc <= count; pc++) {
-        	char* Hashfile_Name = hashfile_name(path, len, pc);
+	int pc = 0;
+	for (; pc < count; pc++) {
+        	char* Hashfile_Name = hashfile_name(path, len, file_list[pc]);
+		//printf("hashfile %s\n", Hashfile_Name);
 		handle = hashfile_open(Hashfile_Name);
-
+		
 		if (!handle) {
 			fprintf(stderr, "Error opening hash file: %d!", errno);
 			exit(-1);
@@ -343,10 +357,13 @@ void file_nodedup_simd_trace(char *path, int count,  int weighted)
 
 				int progress = restore_bytes * 100 / sys_capacity;
 				while(progress >= step && step <= 99){
-					if(!weighted)
+					if(!weighted){
 						printf("%.6f\n", 1.0*restore_files/sys_file_number);
-					else
+						fprintf(stderr, "%.6f\n", 1.0*restore_files/sys_file_number);
+					}else{
 						printf("%.6f\n", 1.0*restore_file_bytes/sys_capacity);
+						fprintf(stderr, "%.6f\n", 1.0*restore_file_bytes/sys_capacity);
+					}
 					step++;
 				}
 
@@ -380,7 +397,7 @@ struct restoring_file{
 	int64_t size;
 };
 
-void file_dedup_simd_trace(char* path, int count,  int weighted, char *pophashfile)
+void file_dedup_simd_trace(char* path, int *file_list, int count,  int weighted, char *pophashfile)
 {
 	if (weighted) {
 		printf("FILE:DEDUP:WEIGHTED\n");
@@ -508,13 +525,14 @@ void file_dedup_simd_trace(char* path, int count,  int weighted, char *pophashfi
 		}
 		close(popfd);
 	}
-
-	int pc = 1;
         int len = strlen(path);
-	for (; pc <= count; pc++) {
-        char* Hashfile_Name = hashfile_name(path, len, pc);
+	int pc = 0;
+        
+	for (; pc < count; pc++) {
+        char* Hashfile_Name = hashfile_name(path, len, file_list[pc]);
+                //printf("hashfile %s\n", Hashfile_Name);
 		handle = hashfile_open(Hashfile_Name);
-
+                
 		if (!handle) {
 			fprintf(stderr, "Error opening hash file: %d!", errno);
 			exit(-1);
@@ -532,10 +550,13 @@ void file_dedup_simd_trace(char* path, int count,  int weighted, char *pophashfi
 				break;
 
 			while (1) {
+                                
 				ci = hashfile_next_chunk(handle);
 				if (!ci) /* exit the loop if it was the last chunk */
-					break;
-
+				{
+				    //fprintf(stderr, "here\n");
+                                    break;
+				}
 				int hashsize = chunk_hash_size(ci);
 				int chunksize = ci->size;
 				memcpy(chunk.hash, ci->hash, hashsize);
@@ -580,10 +601,13 @@ void file_dedup_simd_trace(char* path, int count,  int weighted, char *pophashfi
 					restore_bytes += chunk.csize;
 					int progress = restore_bytes * 100/psize;
 					while (progress >= step && step <= 99) {
-						if (!weighted)
+						if (!weighted){
 							printf("%.6f\n", 1.0*restore_files/sys_file_number);
-						else
+							fprintf(stderr, "%.6f\n", 1.0*restore_files/sys_file_number);
+						}else{
 							printf("%.6f\n", 1.0*restore_file_bytes/lsize);
+							fprintf(stderr, "%.6f\n", 1.0*restore_file_bytes/lsize);
+						}
 						step++;
 					}
 					char* hash = malloc(20);
@@ -605,6 +629,9 @@ void file_dedup_simd_trace(char* path, int count,  int weighted, char *pophashfi
 
 int main(int argc, char *argv[])
 {
+	/*
+	 * ./simd_exporter [-f -d -w] [count] [dir] [file1] [file2] ...
+ 	 */
 	/* dedup? */
 	int dedup = 0;
 	/* weighted by file/chunk size? */
@@ -634,27 +661,34 @@ int main(int argc, char *argv[])
 				return -1;
 		}
 	}
-        printf("%d %d %d\n", file_level, dedup, weighted);
 	open_database();
-        char* dir = parse_file_dir(argv[1]);
-        int num_files = (int)strtol(argv[2], NULL, 10);
-        /*int i = 1;
+	int num_files = (int)strtol(argv[optind++], NULL, 10);
+        char* dir = parse_file_dir(argv[optind++]);
+	int *file_list = malloc(num_files*sizeof(int));
+	int i=0;
+	for (; i < num_files; i++){
+	    if (i == (num_files-1)) file_list[i] = (int)strtol(argv[optind], NULL, 10);
+	    else file_list[i] = (int)strtol(argv[optind++], NULL, 10);
+	}
+	
+        /*printf("%d\n", num_files);
+        int i = 1;
         int len = strlen(dir);
         for( ; i <= num_files; i++){
             char *res = hashfile_name(dir, len, i);
             printf("%s\n", res);
-        }*/
-        
+        }
+        */
 	if (!file_level) {
 		if (!dedup)
-			chunk_nodedup_simd_trace(dir, num_files,  weighted);
+			chunk_nodedup_simd_trace(dir, file_list, num_files,  weighted);
 		else
-			chunk_dedup_simd_trace(dir, num_files, weighted, pophash);
+			chunk_dedup_simd_trace(dir, file_list, num_files, weighted, pophash);
 	} else {
 		if (!dedup)
-			file_nodedup_simd_trace(dir, num_files, weighted);
+			file_nodedup_simd_trace(dir, file_list, num_files, weighted);
 		else
-			file_dedup_simd_trace(dir, num_files, weighted, pophash);
+			file_dedup_simd_trace(dir, file_list, num_files, weighted, pophash);
 	}
 	close_database();
 
